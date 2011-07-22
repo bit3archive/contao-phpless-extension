@@ -105,8 +105,10 @@ class PHPLessExtension
 		switch ($key)
 		{
 		case 'border-radius':
+		case 'border-image':
 		case 'box-shadow':
 			$this->appendPrefixed($key, $value, $c);
+			$c->append('behaviour', '../../plugins/css3pie/PIE.htc');
 			return true;
 			
 		case 'opacity':
