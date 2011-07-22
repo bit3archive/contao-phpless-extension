@@ -48,11 +48,12 @@ class PHPLessExtension
 				$out = '#';
 				
 				// the alpha value
-				$out .= strtoupper(($value[$i] < 16 ? '0' : '').dechex(255*$value[4]));
+				$argv[4] *= 255;
+				$out .= strtoupper(($argv[4] < 16 ? '0' : '').dechex($argv[4]));
 				// the rgb values
 				foreach (array(1, 2, 3) as $i)
 				{
-					$out .= strtoupper(($value[$i] < 16 ? '0' : '').dechex($value[$i]));
+					$out .= strtoupper(($argv[$i] < 16 ? '0' : '').dechex($argv[$i]));
 				}
 				
 				return $out;
@@ -64,7 +65,7 @@ class PHPLessExtension
 	
 	protected function appendPrefixed($key, $value, lessc $c)
 	{
-		foreach (array('', '-moz-', '-webkit-', '-o-', '-khtml-') as $strPrefix)
+		foreach (array('', '-moz-', '-webkit-', '-o-', '-khtml-', '-ms-', '-pie-') as $strPrefix)
 		{
 			$c->append($strPrefix . $key, $value);
 		}
@@ -108,7 +109,7 @@ class PHPLessExtension
 		case 'border-image':
 		case 'box-shadow':
 			$this->appendPrefixed($key, $value, $c);
-			$c->append('behaviour', '../../plugins/css3pie/PIE.htc');
+			$c->append('behavior', array('keyword', 'url(../../plugins/css3pie/PIE.htc)'));
 			return true;
 			
 		case 'opacity':
@@ -137,6 +138,8 @@ class PHPLessExtension
 				$argv = $argv[2];
 			}
 			
+			$usePIE = true;
+			$useFilter = true;
 			$images = array();
 			$colors = array();
 			$n = 0;
@@ -161,6 +164,18 @@ class PHPLessExtension
 					
 					$colors[] = array($color, $position);
 				}
+				else if ($argv[$n][0] == 'keyword')
+				{
+					if ($argv[$n][1] == '!nopie')
+					{
+						$usePIE = false;
+					}
+					else if ($argv[$n][1] == '!nofilter')
+					{
+						$useFilter = false;
+					}
+					$n ++;
+				}
 				else
 				{
 					$images[] = $c->compileValue($argv[$n++]);
@@ -177,7 +192,7 @@ class PHPLessExtension
 			
 			$return = '';
 			
-			// webkit gradients
+			// add old webkit gradients
 			$out = '';
 			foreach ($images as $image)
 			{
@@ -199,13 +214,13 @@ class PHPLessExtension
 			$out .= ')';
 			$return .= $c->compileBlock($this->prependTags(array('body.safari', 'body.chrome'), $tags), array('background' => array(array('keyword', $out))));
 			
-			// mozilla gradients
+			// add linear-gradients for various browsers
 			$out = '';
 			foreach ($images as $image)
 			{
 				$out .= $image . ', ';
 			}
-			$out .= '-moz-linear-gradient(center ';
+			$out .= 'linear-gradient(';
 			switch ($key) {
 			case 'gradient':
 				$out .= 'top';
@@ -219,93 +234,96 @@ class PHPLessExtension
 				$out .= sprintf(', %s %d%%', $c->compileValue($color[0]), ($color[1] >= 0 ? $color[1] : $i * $m) * 100);
 			}
 			$out .= ')';
-			$return .= $c->compileBlock($this->prependTags('body.firefox', $tags), array('background' => array(array('keyword', $out))));
 			
-			// opera gradients
-			$out = '';
-			foreach ($images as $image)
+			$c->append('background', array('keyword', $out));
+			foreach (array
+				(
+					'-moz-'    => 'body.firefox',
+					'-webkit-' => array('body.safari', 'body.chrome'),
+					'-o-'      => 'body.opera',
+					'-khtml-'  => 'body.konqueror',
+					'-ms-'     => 'body.ie'
+				) as $strPrefix => $arrClass)
 			{
-				$out .= $image . ', ';
+				$return .= $c->compileBlock($this->prependTags($arrClass, $tags), array('background' => array(array('keyword', str_replace('linear-gradient', $strPrefix . 'linear-gradient', $out)))));
 			}
-			$out .= '-o-linear-gradient(center ';
-			switch ($key) {
-			case 'gradient':
-				$out .= 'top';
-				break;
-			case 'hgradient':
-				$out .= 'left';
-				break;
-			}
-			foreach ($colors as $i => $color)
+			
+			// add css pie
+			if ($usePIE)
 			{
-				$out .= sprintf(', %s %d%s', $c->compileValue($color[0]), ($color[1] >= 0 ? $color[1] : $i * $m) * 100, '%');
+				$return .= $c->compileBlock($this->prependTags('body.ie', $tags), array
+				(
+					'-pie-background' => array(array('keyword', $out)),
+					'behavior' => array(array('keyword', 'url(../../plugins/css3pie/PIE.htc)'))
+				));
 			}
-			$out .= ')';
-			$return .= $c->compileBlock($this->prependTags('body.opera', $tags), array('background' => array(array('keyword', $out))));
 			
 			// ms filter
-			$out = 'progid:DXImageTransform.Microsoft.Gradient(enabled=true' . ($key == 'hgradient' ? ', GradientType=1' : '') . ', StartColorStr=' . $this->parseARGB($colors[0][0], $c) . ', EndColorStr=' . $this->parseARGB($colors[$n-1][0], $c) . ')';
-			$return .= $c->compileBlock($this->prependTags(array('body.ie6', 'body.ie7'), $tags), array('filter' => array(array('keyword', $out))));
-			$return .= $c->compileBlock($this->prependTags('body.ie8', $tags), array('-ms-filter' => array(array('keyword', $out))));
-			
-			// IE9 svg gradient
-			$out = '<?xml version="1.0" ?>
+			else if ($useFilter)
+			{
+				$out = 'progid:DXImageTransform.Microsoft.Gradient(enabled=true' . ($key == 'hgradient' ? ', GradientType=1' : '') . ', StartColorStr=' . $this->parseARGB($colors[0][0], $c) . ', EndColorStr=' . $this->parseARGB($colors[$n-1][0], $c) . ')';
+				$return .= $c->compileBlock($this->prependTags(array('body.ie6', 'body.ie7', 'body.ie8'), $tags), array('filter' => array(array('keyword', $out))));
+				// -ms-filter does NOT work in IE8!!! $return .= $c->compileBlock($this->prependTags('body.ie8', $tags), array('-ms-filter' => array(array('keyword', $out))));
+				
+				// IE9 svg gradient
+				$out = '<?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" version="1.0" width="100%" height="100%" xmlns:xlink="http://www.w3.org/1999/xlink">
 	<defs>';
-			switch ($key) {
-			case 'gradient':
-				$out .= '
+				switch ($key) {
+				case 'gradient':
+					$out .= '
 		<linearGradient id="myLinearGradient1" x1="0%" y1="0%" x2="0%" y2="100%" spreadMethod="pad">';
-				break;
-			case 'hgradient':
-				$out .= '
+					break;
+				case 'hgradient':
+					$out .= '
 		<linearGradient id="myLinearGradient1" x1="0%" y1="0%" x2="100%" y2="0%" spreadMethod="pad">';
-				break;
-			}
-			foreach ($colors as $i => $color)
-			{
-				$opacity = 1;
-				if (count($color[0]) == 5)
-				{
-					$opacity = $color[0][4];
-					unset($color[0][4]);
+					break;
 				}
-				$out .= sprintf('
-			<stop offset="%d%%" stop-color="%s" stop-opacity="%d"/>',
-					($color[1] >= 0 ? $color[1] : $i * $m) * 100,
-					$c->compileValue($color[0]),
-					$opacity);
-			}
-			$out .= '
+				foreach ($colors as $i => $color)
+				{
+					$opacity = 1;
+					if (count($color[0]) == 5)
+					{
+						$opacity = $color[0][4];
+						unset($color[0][4]);
+					}
+					$out .= sprintf('
+			<stop offset="%d%%" stop-color="%s" stop-opacity="%f"/>',
+						($color[1] >= 0 ? $color[1] : $i * $m) * 100,
+						$c->compileValue($color[0]),
+						$opacity);
+				}
+				$out .= '
 		</linearGradient>
 	</defs>
 	<rect width="100%" height="100%" style="fill:url(#myLinearGradient1);" />
 </svg>';
-			$strSVG = 'system/html/ie9_gradient_' . substr(md5($out), 0, 8) . '.svg';
-			if (!file_exists(TL_ROOT . '/' . $strSVG))
-			{
-				$objFile = new File($strSVG);
-				$objFile->write($out);
-				$objFile->close();
-			}
-			
-			// ms background
-			if (count($images))
-			{
-				$return .= $c->compileBlock($this->prependTags(array('body.ie6', 'body.ie7', 'body.ie8'), $tags), array('background' => array(array('keyword', $images[0]))));
-				
-				$out = '';
-				foreach ($images as $image)
+				$strSVG = 'system/html/ie9_gradient_' . substr(md5($out), 0, 8) . '.svg';
+				if (!file_exists(TL_ROOT . '/' . $strSVG))
 				{
-					$out .= $image . ', ';
+					$objFile = new File($strSVG);
+					$objFile->write($out);
+					$objFile->close();
 				}
-				$out .= 'url(../../' . $strSVG . ')';
-				$return .= $c->compileBlock($this->prependTags('body.ie9', $tags), array('background' => array(array('keyword', $out))));
-			}
-			else
-			{
-				$out = 'url(../../' . $strSVG . ')';
-				$return .= $c->compileBlock($this->prependTags('body.ie9', $tags), array('background' => array(array('keyword', $out))));
+				
+				// ms background
+				if (count($images))
+				{
+					$return .= $c->compileBlock($this->prependTags(array('body.ie6', 'body.ie7', 'body.ie8'), $tags), array('background' => array(array('keyword', $images[0]))));
+					
+					$out = '';
+					foreach ($images as $image)
+					{
+						$out .= $image . ', ';
+					}
+					$out .= 'url(../../' . $strSVG . ')';
+					$return .= $c->compileBlock($this->prependTags('body.ie9', $tags), array('background' => array(array('keyword', $out))));
+				}
+				else
+				{
+					$out = 'url(../../' . $strSVG . ')';
+					$return .= $c->compileBlock($this->prependTags('body.ie9', $tags), array('background' => array(array('keyword', $out))));
+				}
 			}
 			
 			return $return;
