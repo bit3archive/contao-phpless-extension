@@ -109,7 +109,7 @@ class PHPLessExtension
 		case 'border-image':
 		case 'box-shadow':
 			$this->appendPrefixed($key, $value, $c);
-			$c->append('behavior', array('keyword', 'url(../../plugins/css3pie/PIE.htc)'));
+			$c->append('behavior', array('keyword', 'url(' . $GLOBALS['TL_CONFIG']['websitePath'] . '/plugins/css3pie/PIE.htc)'));
 			return true;
 			
 		case 'opacity':
@@ -254,7 +254,7 @@ class PHPLessExtension
 				$return .= $c->compileBlock($this->prependTags('body.ie', $tags), array
 				(
 					'-pie-background' => array(array('keyword', $out)),
-					'behavior' => array(array('keyword', 'url(../../plugins/css3pie/PIE.htc)'))
+					'behavior' => array(array('keyword', 'url(' . $GLOBALS['TL_CONFIG']['websitePath'] . '/plugins/css3pie/PIE.htc)'))
 				));
 			}
 			
