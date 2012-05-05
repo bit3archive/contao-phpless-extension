@@ -100,6 +100,179 @@ class PHPLessExtension
 		
 		return $tags;
 	}
+
+	protected function generateGradient($value, lessc $c, $horizontal)
+	{
+		$tags = $c->multiplyTags();
+
+		if ($value[0] == 'list')
+		{
+			$value = $value[2];
+		}
+
+		$usePIE = true;
+		$useFilter = true;
+		$images = array();
+		$colors = array();
+		$n = 0;
+		while ($n < count($value))
+		{
+			if ($value[$n][0] == 'function')
+			{
+				$value[$n] = $c->funcToColor($value[$n]);
+			}
+			if ($value[$n][0] == 'color')
+			{
+				$color = $value[$n++];
+
+				if ($value[$n][0] == 'number')
+				{
+					$position = doubleval($value[$n++][1]);
+				}
+				else
+				{
+					$position = -1;
+				}
+
+				$colors[] = array($color, $position);
+			}
+			else if ($value[$n][0] == 'keyword')
+			{
+				if ($value[$n][1] == '!nopie')
+				{
+					$usePIE = false;
+				}
+				else if ($value[$n][1] == '!nofilter')
+				{
+					$useFilter = false;
+				}
+				$n ++;
+			}
+			else
+			{
+				$images[] = $c->compileValue($value[$n++]);
+			}
+		}
+
+		$n = count($colors);
+		$m = 1 / ($n-1);
+
+		if ($n < 2)
+		{
+			return true;
+		}
+
+		// standard css linear-gradient
+		$linearGradient = '';
+		foreach ($images as $image)
+		{
+			$linearGradient .= $image . ', ';
+		}
+		$linearGradient .= 'linear-gradient(';
+		if ($horizontal) {
+			$linearGradient .= 'left';
+		}
+		else {
+			$linearGradient .= 'top';
+		}
+		foreach ($colors as $i => $color)
+		{
+			$linearGradient .= sprintf(', %s %d%%', $c->compileValue($color[0]), ($color[1] >= 0 ? $color[1] : $i * $m) * 100);
+		}
+		$linearGradient .= ')';
+
+		// add css pie
+		if ($usePIE)
+		{
+			$c->append('-pie-background', array('keyword', $linearGradient));
+			$c->append('behavior', array('keyword', 'url(../../plugins/css3pie/PIE.htc)'));
+		}
+
+		// ms filter
+		else if ($useFilter)
+		{
+			$out = 'progid:DXImageTransform.Microsoft.Gradient(enabled=true' . ($horizontal ? ', GradientType=1' : '') . ', StartColorStr=' . $this->parseARGB($colors[0][0], $c) . ', EndColorStr=' . $this->parseARGB($colors[$n-1][0], $c) . ')';
+			$c->append('filter', array('keyword', $out));
+
+			// IE9 svg gradient
+			$out = '<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" version="1.0" width="100%" height="100%" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<defs>';
+			if ($horizontal) {
+				$out .= '
+		<linearGradient id="myLinearGradient1" x1="0%" y1="0%" x2="100%" y2="0%" spreadMethod="pad">';
+			}
+			else {
+				$out .= '
+		<linearGradient id="myLinearGradient1" x1="0%" y1="0%" x2="0%" y2="100%" spreadMethod="pad">';
+			}
+			foreach ($colors as $i => $color)
+			{
+				$opacity = 1;
+				if (count($color[0]) == 5)
+				{
+					$opacity = $color[0][4];
+					unset($color[0][4]);
+				}
+				$out .= sprintf('
+			<stop offset="%d%%" stop-color="%s" stop-opacity="%f"/>',
+					($color[1] >= 0 ? $color[1] : $i * $m) * 100,
+					$c->compileValue($color[0]),
+					$opacity);
+			}
+			$out .= '
+		</linearGradient>
+	</defs>
+	<rect width="100%" height="100%" style="fill:url(#myLinearGradient1);" />
+</svg>';
+			$strSVG = 'system/html/ie9_gradient_' . substr(md5($out), 0, 8) . '.svg';
+			if (!file_exists(TL_ROOT . '/' . $strSVG))
+			{
+				$objFile = new File($strSVG);
+				$objFile->write($out);
+				$objFile->close();
+			}
+
+			// ms background
+			$out = '';
+			foreach ($images as $image)
+			{
+				$out .= $image . ', ';
+			}
+			$out .= sprintf('url("../../%s")', $strSVG);
+
+			$c->append('background-image', array('keyword', $out));
+		}
+
+		// add old webkit gradients
+		$out = '';
+		foreach ($images as $image)
+		{
+			$out .= $image . ', ';
+		}
+		$out .= '-webkit-gradient(linear, ';
+		if ($horizontal) {
+			$out .= 'left top, right top';
+		}
+		else {
+			$out .= 'left top, left bottom';
+		}
+		foreach ($colors as $i => $color)
+		{
+			$out .= sprintf(', color-stop(%f, %s)', $color[1] >= 0 ? $color[1] : $i * $m, $c->compileValue($color[0]));
+		}
+		$out .= ')';
+		$c->append('background-image', array('keyword', $out));
+
+		// add linear-gradients for various browsers
+		foreach (array('-moz-', '-webkit-', '-o-', '-khtml-', '-ms-') as $strPrefix)
+		{
+			$c->append('background-image', array('keyword', str_replace('linear-gradient', $strPrefix . 'linear-gradient', $linearGradient)));
+		}
+		$c->append('background-image', array('keyword', $linearGradient));
+
+		return true;
+	}
 	
 	public function hookLesscssHandleProperty($key, $value, lessc $c)
 	{
@@ -117,6 +290,12 @@ class PHPLessExtension
 			$c->append('-ms-filter', array('keyword', sprintf('progid:DXImageTransform.Microsoft.Alpha(Opacity=%d)', $value[1]*100)));
 			$c->append('filter', array('keyword', sprintf('alpha(opacity=%d)', $value[1]*100)));
 			return true;
+
+		case 'gradient':
+			return $this->generateGradient($value, $c, false);
+
+		case 'hgradient':
+			return $this->generateGradient($value, $c, true);
 		}
 		return false;
 	}
@@ -132,12 +311,12 @@ class PHPLessExtension
 		case 'gradient':
 		case 'hgradient':
 			$tags = $c->multiplyTags();
-			
+
 			if ($argv[0] == 'list')
 			{
 				$argv = $argv[2];
 			}
-			
+
 			$usePIE = true;
 			$useFilter = true;
 			$images = array();
@@ -152,7 +331,7 @@ class PHPLessExtension
 				if ($argv[$n][0] == 'color')
 				{
 					$color = $argv[$n++];
-					
+
 					if ($argv[$n][0] == 'number')
 					{
 						$position = doubleval($argv[$n++][1]);
@@ -161,7 +340,7 @@ class PHPLessExtension
 					{
 						$position = -1;
 					}
-					
+
 					$colors[] = array($color, $position);
 				}
 				else if ($argv[$n][0] == 'keyword')
@@ -181,17 +360,17 @@ class PHPLessExtension
 					$images[] = $c->compileValue($argv[$n++]);
 				}
 			}
-			
+
 			$n = count($colors);
 			$m = 1 / ($n-1);
-			
+
 			if ($n < 2)
 			{
 				return '';
 			}
-			
+
 			$return = '';
-			
+
 			// add old webkit gradients
 			$out = '';
 			foreach ($images as $image)
@@ -213,7 +392,7 @@ class PHPLessExtension
 			}
 			$out .= ')';
 			$return .= $c->compileBlock($this->prependTags(array('body.safari', 'body.chrome'), $tags), array('background' => array(array('keyword', $out))));
-			
+
 			// add linear-gradients for various browsers
 			$out = '';
 			foreach ($images as $image)
@@ -234,7 +413,7 @@ class PHPLessExtension
 				$out .= sprintf(', %s %d%%', $c->compileValue($color[0]), ($color[1] >= 0 ? $color[1] : $i * $m) * 100);
 			}
 			$out .= ')';
-			
+
 			$c->append('background', array('keyword', $out));
 			foreach (array
 				(
@@ -247,7 +426,7 @@ class PHPLessExtension
 			{
 				$return .= $c->compileBlock($this->prependTags($arrClass, $tags), array('background' => array(array('keyword', str_replace('linear-gradient', $strPrefix . 'linear-gradient', $out)))));
 			}
-			
+
 			// add css pie
 			if ($usePIE)
 			{
@@ -257,14 +436,14 @@ class PHPLessExtension
 					'behavior' => array(array('keyword', 'url(' . $GLOBALS['TL_CONFIG']['websitePath'] . '/plugins/css3pie/PIE.htc)'))
 				));
 			}
-			
+
 			// ms filter
 			else if ($useFilter)
 			{
 				$out = 'progid:DXImageTransform.Microsoft.Gradient(enabled=true' . ($key == 'hgradient' ? ', GradientType=1' : '') . ', StartColorStr=' . $this->parseARGB($colors[0][0], $c) . ', EndColorStr=' . $this->parseARGB($colors[$n-1][0], $c) . ')';
 				$return .= $c->compileBlock($this->prependTags(array('body.ie6', 'body.ie7', 'body.ie8'), $tags), array('filter' => array(array('keyword', $out))));
 				// -ms-filter does NOT work in IE8!!! $return .= $c->compileBlock($this->prependTags('body.ie8', $tags), array('-ms-filter' => array(array('keyword', $out))));
-				
+
 				// IE9 svg gradient
 				$out = '<?xml version="1.0" ?>
 <svg xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none" version="1.0" width="100%" height="100%" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -305,12 +484,12 @@ class PHPLessExtension
 					$objFile->write($out);
 					$objFile->close();
 				}
-				
+
 				// ms background
 				if (count($images))
 				{
 					$return .= $c->compileBlock($this->prependTags(array('body.ie6', 'body.ie7', 'body.ie8'), $tags), array('background' => array(array('keyword', $images[0]))));
-					
+
 					$out = '';
 					foreach ($images as $image)
 					{
@@ -325,7 +504,7 @@ class PHPLessExtension
 					$return .= $c->compileBlock($this->prependTags('body.ie9', $tags), array('background' => array(array('keyword', $out))));
 				}
 			}
-			
+
 			return $return;
 		}
 		return false;
