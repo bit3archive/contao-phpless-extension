@@ -281,8 +281,18 @@ class PHPLessExtension
 		case 'border-radius':
 		case 'border-image':
 		case 'box-shadow':
-			$this->appendPrefixed($key, $value, $c);
 			$c->append('behavior', array('keyword', 'url(' . $GLOBALS['TL_CONFIG']['websitePath'] . '/plugins/css3pie/PIE.htc)'));
+
+		case 'box-sizing':
+		case 'transition':
+		case 'transition-property':
+		case 'transition-duration':
+		case 'transition-timing-function':
+		case 'transition-delay':
+		case 'transform':
+		case 'perspective':
+		case 'perspective-origin':
+			$this->appendPrefixed($key, $value, $c);
 			return true;
 			
 		case 'opacity':
