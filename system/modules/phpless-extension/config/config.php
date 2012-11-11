@@ -35,6 +35,21 @@
 /**
  * HOOKs
  */
+$GLOBALS['TL_HOOKS']['compileLess'][] = array('PHPLessExtension', 'compileLess');
+
 $GLOBALS['TL_HOOKS']['lesscssHandleProperty'][]  = array('PHPLessExtension', 'hookLesscssHandleProperty');
 $GLOBALS['TL_HOOKS']['lesscssHandleFunction'][]  = array('PHPLessExtension', 'hookLesscssHandleFunction');
 $GLOBALS['TL_HOOKS']['lesscssCompileFunction'][] = array('PHPLessExtension', 'hookLesscssCompileFunction');
+
+
+/**
+ * Enabled css crush modules.
+ */
+$GLOBALS['CSSCRUSH_MODULES'] = array(
+    'hsl-to-hex',
+    'hocus-pocus',
+    'ie-opacity',
+    'rgba-fallback',
+    'ie-inline-block',
+    'ie-min-height'
+);

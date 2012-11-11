@@ -39,6 +39,27 @@
  */
 class PHPLessExtension
 {
+    /**
+     * @var PHPLessExtension
+     */
+    protected static $objInstance = null;
+
+    /**
+     * @return PHPLessExtension
+     */
+    public static function getInstance()
+    {
+        if (self::$objInstance === null) {
+            self::$objInstance = new PHPLessExtension();
+        }
+        return self::$objInstance;
+    }
+
+    protected function __construct()
+    {
+        require_once  dirname(__FILE__) . '/' . 'csscrush/CssCrush.php';
+    }
+
 	protected function parseARGB($argv, lessc $c)
 	{
 		if ($argv[0] == 'color')
@@ -273,7 +294,60 @@ class PHPLessExtension
 
 		return true;
 	}
-	
+
+    public function compileLess($strCode, $strFile)
+    {
+        $strCode = preg_replace_callback('#(h?gradient):(.*)([;\}])#U', array($this, 'regenerateGradientProperty'), $strCode);
+
+        $strCode = csscrush_string($strCode, array(
+            'debug' => true,
+            'enable' => $GLOBALS['CSSCRUSH_MODULES']
+        ));
+
+        return $strCode;
+    }
+
+    public function regenerateGradientProperty($match)
+    {
+        $gradient = $match[1];
+        $args = array_filter(array_map('trim', explode(' ', $match[2])));
+
+        $property = 'background-image:';
+
+        // add image file
+        if (preg_match('#url\(.*\)#', $args[0])) {
+            $property .= array_shift($args) . ',';
+        }
+
+        // add gradient
+        $property .= 'linear-gradient(';
+        if ($gradient == 'hgradient') {
+            $property .= 'left,';
+        }
+        while (count($args)) {
+            $property .= array_shift($args);
+
+            if (isset($args[0])) {
+                if (is_numeric($args[0])) {
+                    $property .= ' ' . round($args[0] * 100) . '%';
+                }
+                else if (preg_match('#^\d+(|px|%|em)$#', $args[0])) {
+                    $property .= ' ' . array_shift($args);
+                }
+            }
+
+            if (count($args)) {
+                $property .= ',';
+            }
+        }
+        $property .= ')';
+
+        // add end
+        $property .= $match[3];
+
+        return $property;
+    }
+
 	public function hookLesscssHandleProperty($key, $value, lessc $c)
 	{
 		switch ($key)
